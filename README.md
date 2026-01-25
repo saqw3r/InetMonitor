@@ -2,6 +2,8 @@
 
 A high-performance Windows application built with **C++20**, **ImGui**, and **DirectX 11** for real-time internet traffic monitoring.
 
+**Note on Development**: This project was written completely using **Vibe Coding**. While the AI laid the foundation, it was successfully navigated to its stable, "Bulletproof" state through persistent human-led navigation and expert guidance during complex system-level error handling. 💎🤖🤝
+
 This tool provides a "Premium" monitoring experience by tapping into deep system kernel events (ETW) to track every byte leaving or entering your machine.
 
 ---
