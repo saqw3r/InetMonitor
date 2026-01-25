@@ -23,7 +23,14 @@ This tool provides a "Premium" monitoring experience by tapping into deep system
 
 ## 📸 Screenshots
 
-_(Add your screenshots here!)_
+![Live Monitor](assets/monitor.png)
+_Real-time traffic tracking with PID, GeoIP mapping, and Peak/Cumulative throughput stats._
+
+![Usage History](assets/history.png)
+_Historical application consumption tracking backed by a local SQLite database._
+
+![Traffic Analysis](assets/analyze.png)
+_Intelligent log correlation to identify system events related to network spikes._
 
 ---
 
