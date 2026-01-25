@@ -1,0 +1,25 @@
+# Internet Monitor Tool - Task List
+
+- [ ] Project Initialization
+  - [/] Create detailed implementation plan <!-- id: 0 -->
+  - [x] Set up CMake project structure with dependencies (SQLite, ImGui, etc.) <!-- id: 1 -->
+  - [x] Write document how to build, run, debug and test the app.
+- [ ] Core: Network Monitoring (ETW)
+  - [x] Implement ETW session controller <!-- id: 2 -->
+  - [x] Create parser for Network Kernel Trace events (TcpIp/UdpIp) <!-- id: 3 -->
+  - [x] Map Process IDs to Process Names (with caching) <!-- id: 4 -->
+- [ ] Core: Data Storage (SQLite)
+  - [ ] Design database schema (Apps, Streams, Stats) <!-- id: 5 -->
+  - [ ] Implement storage class for inserting real-time data <!-- id: 6 -->
+  - [ ] Implement query methods for time windows (1h, 4h, 24h, 1w, 1m) <!-- id: 7 -->
+- [ ] Core: Windows Event Log Integration
+  - [ ] Implement `EventLogReader` to query System/Application logs <!-- id: 8 -->
+  - [ ] Correlate high-usage timestamps with Event Log entries <!-- id: 9 -->
+- [ ] UI & Visualization (ImGui)
+  - [ ] Set up ImGui window and main loop <!-- id: 10 -->
+  - [ ] Create "Live Traffic" view <!-- id: 11 -->
+  - [ ] Create "Historical Stats" view with graphs <!-- id: 12 -->
+  - [ ] Create "Analysis/Conclusion" view for triggers <!-- id: 13 -->
+- [ ] Verification
+  - [ ] Validate bandwidth counting against a known huge download <!-- id: 14 -->
+  - [ ] Verify event correlation logic <!-- id: 15 -->
