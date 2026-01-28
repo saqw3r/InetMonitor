@@ -9,7 +9,6 @@
 #include <vector>
 #include <windows.h>
 
-
 #include "imgui.h"
 #include "imgui_impl_dx11.h"
 #include "imgui_impl_win32.h"
@@ -138,7 +137,7 @@ int main(int, char **) {
 
     struct Row {
       uint32_t Pid = 0;
-      std::string Proc = "", IP = "", Dom = "", Cnt = "";
+      std::string Proc = "", IP = "", Dom = "", Country = "";
       uint64_t LUp = 0, LDn = 0; // Last Snapshot totals
       uint64_t SUp = 0, SDn = 0; // Current speeds
       uint64_t MaxUp = 0, MaxDn = 0;
@@ -193,7 +192,7 @@ int main(int, char **) {
                 r.Proc = WToA_F(s.ProcessName);
                 r.IP = WToA_F(s.RemoteIP);
                 r.Dom = WToA_F(s.Domain);
-                r.Cnt = WToA_F(s.Country);
+                r.Country = WToA_F(s.Country);
                 r.SUp = deltaUp;
                 r.SDn = deltaDn;
                 r.LUp = s.TotalUp;
@@ -224,18 +223,22 @@ int main(int, char **) {
               (unitMode == 0) ? 1048576.0f : (unitMode == 1 ? 1024.0f : 1.0f);
           const char *us =
               (unitMode == 0) ? "MB" : (unitMode == 1 ? "KB" : "B");
+          std::string usS = std::string(us) + "/s";
+
           ImGui::RadioButton("MB/s", &unitMode, 0);
           ImGui::SameLine();
           ImGui::RadioButton("KB/s", &unitMode, 1);
           ImGui::SameLine();
           ImGui::RadioButton("B/s", &unitMode, 2);
 
-          ImGui::Text("Up: %.1f %s/s (Peak: %.1f)", uD[(off + 119) % 120] / div,
-                      us, pU / div);
+          ImGui::Text("Upload: %.1f %s (Peak: %.1f %s)",
+                      uD[(off + 119) % 120] / div, usS.c_str(), pU / div,
+                      usS.c_str());
           ImGui::PlotLines("##U", uD, 120, off, nullptr, 0, pU * 1.1f + 1.0f,
                            ImVec2(-1, 60));
-          ImGui::Text("Dn: %.1f %s/s (Peak: %.1f)", dD[(off + 119) % 120] / div,
-                      us, pD / div);
+          ImGui::Text("Download: %.1f %s (Peak: %.1f %s)",
+                      dD[(off + 119) % 120] / div, usS.c_str(), pD / div,
+                      usS.c_str());
           ImGui::PlotLines("##D", dD, 120, off, nullptr, 0, pD * 1.1f + 1.0f,
                            ImVec2(-1, 60));
 
@@ -248,17 +251,24 @@ int main(int, char **) {
                       ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingFixedFit |
                       ImGuiTableFlags_Sortable,
                   ImVec2(0, 300))) {
+            std::string unitHeader = " (" + std::string(us) + "/s)";
+            std::string totalUnitHeader = " (" + std::string(us) + ")";
+
             ImGui::TableSetupColumn("PID", 0, 50.0f);
             ImGui::TableSetupColumn("Process", 0, 150.0f);
             ImGui::TableSetupColumn("IP", 0, 110.0f);
             ImGui::TableSetupColumn("Domain", 0, 150.0f);
-            ImGui::TableSetupColumn("Cnt", 0, 40.0f);
-            ImGui::TableSetupColumn("Up", 0, 75.0f);
-            ImGui::TableSetupColumn("Dn", 0, 75.0f);
-            ImGui::TableSetupColumn("Max Up", 0, 75.0f);
-            ImGui::TableSetupColumn("Max Dn", 0, 75.0f);
-            ImGui::TableSetupColumn("Total Up", 0, 80.0f);
-            ImGui::TableSetupColumn("Total Dn", 0, 80.0f);
+            ImGui::TableSetupColumn("Country", 0, 60.0f);
+            ImGui::TableSetupColumn(("Upload" + unitHeader).c_str(), 0, 90.0f);
+            ImGui::TableSetupColumn(("Download" + unitHeader).c_str(), 0,
+                                    90.0f);
+            ImGui::TableSetupColumn(("Max Up" + unitHeader).c_str(), 0, 90.0f);
+            ImGui::TableSetupColumn(("Max Down" + unitHeader).c_str(), 0,
+                                    90.0f);
+            ImGui::TableSetupColumn(("Total Up" + totalUnitHeader).c_str(), 0,
+                                    100.0f);
+            ImGui::TableSetupColumn(("Total Down" + totalUnitHeader).c_str(), 0,
+                                    100.0f);
             ImGui::TableHeadersRow();
             for (auto &rowPair : tableData) {
               auto &r = rowPair.second;
@@ -277,7 +287,7 @@ int main(int, char **) {
               ImGui::TableSetColumnIndex(3);
               ImGui::Text("%s", r.Dom.c_str());
               ImGui::TableSetColumnIndex(4);
-              ImGui::Text("%s", r.Cnt.c_str());
+              ImGui::Text("%s", r.Country.c_str());
               ImGui::TableSetColumnIndex(5);
               ImGui::Text("%.1f", (float)r.SUp / div);
               ImGui::TableSetColumnIndex(6);
@@ -311,8 +321,8 @@ int main(int, char **) {
                                     ImGuiTableFlags_RowBg |
                                     ImGuiTableFlags_SizingFixedFit)) {
             ImGui::TableSetupColumn("Application", 0, 400.0f);
-            ImGui::TableSetupColumn("Up (MB)", 0, 100.0f);
-            ImGui::TableSetupColumn("Dn (MB)", 0, 100.0f);
+            ImGui::TableSetupColumn("Upload (MB)", 0, 120.0f);
+            ImGui::TableSetupColumn("Download (MB)", 0, 120.0f);
             ImGui::TableHeadersRow();
             for (auto const &item : cachedUsage) {
               ImGui::TableNextRow();
