@@ -31,7 +31,7 @@ static IDXGISwapChain *g_pSwapChain = nullptr;
 static ID3D11RenderTargetView *g_pRtv = nullptr;
 static bool g_uReady = false;
 
-static std::string WToA_Final(const std::wstring &w) {
+static std::string WToA_F(const std::wstring &w) {
   if (w.empty())
     return "";
   int sz = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.length(), nullptr,
@@ -49,7 +49,7 @@ static std::string WToA_Final(const std::wstring &w) {
   return s;
 }
 
-bool glob_match_core(const char *pat, const char *str) {
+bool glob_m(const char *pat, const char *str) {
   const char *p = pat, *s = str, *cp = nullptr, *cs = nullptr;
   while (*s) {
     if (*p == '*') {
@@ -78,7 +78,7 @@ void CleanupRtv();
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 int main(int, char **) {
-  LOG("Entering main - MAX SPEED FEATURE");
+  LOG("Entering main - CUMULATIVE SNAPSHOT MODE");
   try {
     db::Database database;
     if (!database.Open("inet_monitor.db")) {
@@ -109,18 +109,15 @@ int main(int, char **) {
       if (GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
         return 1;
     }
-
     HWND hwnd = ::CreateWindowW(wc.lpszClassName, L"Internet Monitor Tool",
                                 WS_OVERLAPPEDWINDOW, 100, 100, 1280, 800,
                                 nullptr, nullptr, wc.hInstance, nullptr);
     if (!hwnd)
       return 1;
-
     if (!CreateD3D(hwnd)) {
       CleanupD3D();
       return 1;
     }
-
     ::ShowWindow(hwnd, SW_SHOWDEFAULT);
     ::UpdateWindow(hwnd);
 
@@ -129,10 +126,8 @@ int main(int, char **) {
     ImGui::GetIO().ConfigFlags |=
         ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_DockingEnable;
     ImGui::StyleColorsDark();
-
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(g_pDevice, g_pContext);
-
     g_uReady = true;
 
     bool done = false;
@@ -144,9 +139,10 @@ int main(int, char **) {
     struct Row {
       uint32_t Pid = 0;
       std::string Proc = "", IP = "", Dom = "", Cnt = "";
-      uint64_t SUp = 0, SDown = 0;
-      uint64_t MaxUp = 0, MaxDown = 0; // NEW: Peak tracking
-      uint64_t TUp = 0, TDown = 0;
+      uint64_t LUp = 0, LDn = 0; // Last Snapshot totals
+      uint64_t SUp = 0, SDn = 0; // Current speeds
+      uint64_t MaxUp = 0, MaxDn = 0;
+      uint64_t TUp = 0, TDn = 0; // Cumulative total
     };
     static std::map<std::string, Row> tableData;
 
@@ -172,47 +168,55 @@ int main(int, char **) {
                    ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoResize |
                        ImGuiWindowFlags_NoMove);
 
-      if (ImGui::BeginTabBar("MainTabs")) {
+      if (ImGui::BeginTabBar("Tabs")) {
         if (ImGui::BeginTabItem("Monitor")) {
           static float pU = 0, pD = 0, uD[120] = {0}, dD[120] = {0};
           static int off = 0;
 
           if (now - lastSecUpdate >= 1.0) {
             lastSecUpdate = now;
-            float cU = 0, cD = 0;
+            float totCurUp = 0, totCurDn = 0;
             try {
-              auto snap = appMonitor.GetRawBufferSnapshot();
+              auto snap = appMonitor.GetCumulativeSnapshot();
               for (auto const &s : snap) {
-                cU += (float)s.Up;
-                cD += (float)s.Down;
                 std::string key =
-                    std::to_string(s.Pid) + "_" + WToA_Final(s.RemoteIP);
+                    std::to_string(s.Pid) + "_" + WToA_F(s.RemoteIP);
                 auto &r = tableData[key];
+
+                // Delta Calculation for speeds
+                uint64_t deltaUp =
+                    (s.TotalUp >= r.LUp) ? (s.TotalUp - r.LUp) : 0;
+                uint64_t deltaDn =
+                    (s.TotalDown >= r.LDn) ? (s.TotalDown - r.LDn) : 0;
+
                 r.Pid = s.Pid;
-                r.Proc = WToA_Final(s.ProcessName);
-                r.IP = WToA_Final(s.RemoteIP);
-                r.Dom = WToA_Final(s.Domain);
-                r.Cnt = WToA_Final(s.Country);
-                r.SUp = s.Up;
-                r.SDown = s.Down;
+                r.Proc = WToA_F(s.ProcessName);
+                r.IP = WToA_F(s.RemoteIP);
+                r.Dom = WToA_F(s.Domain);
+                r.Cnt = WToA_F(s.Country);
+                r.SUp = deltaUp;
+                r.SDn = deltaDn;
+                r.LUp = s.TotalUp;
+                r.LDn = s.TotalDown;
+                r.TUp = s.TotalUp;
+                r.TDn = s.TotalDown;
 
-                // Track Maxima
-                if (s.Up > r.MaxUp)
-                  r.MaxUp = s.Up;
-                if (s.Down > r.MaxDown)
-                  r.MaxDown = s.Down;
+                if (deltaUp > r.MaxUp)
+                  r.MaxUp = deltaUp;
+                if (deltaDn > r.MaxDn)
+                  r.MaxDn = deltaDn;
 
-                r.TUp += s.Up;
-                r.TDown += s.Down;
+                totCurUp += (float)deltaUp;
+                totCurDn += (float)deltaDn;
               }
             } catch (...) {
             }
-            if (cU > pU)
-              pU = cU;
-            if (cD > pD)
-              pD = cD;
-            uD[off] = cU;
-            dD[off] = cD;
+            if (totCurUp > pU)
+              pU = totCurUp;
+            if (totCurDn > pD)
+              pD = totCurDn;
+            uD[off] = totCurUp;
+            dD[off] = totCurDn;
             off = (off + 1) % 120;
           }
 
@@ -238,12 +242,11 @@ int main(int, char **) {
           static char flt[128] = "";
           ImGui::InputText("Filter", flt, 128);
 
-          // 11 columns: PID, Proc, IP, Dom, Cnt, SUp, SDown, MaxUp, MaxDown,
-          // TUp, TDown
           if (ImGui::BeginTable(
                   "MonTable", 11,
                   ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
-                      ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingFixedFit,
+                      ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingFixedFit |
+                      ImGuiTableFlags_Sortable,
                   ImVec2(0, 300))) {
             ImGui::TableSetupColumn("PID", 0, 50.0f);
             ImGui::TableSetupColumn("Process", 0, 150.0f);
@@ -260,9 +263,10 @@ int main(int, char **) {
             for (auto &rowPair : tableData) {
               auto &r = rowPair.second;
               if (flt[0] != '\0' &&
-                  !glob_match_core(flt,
-                                   (r.Proc + " " + r.IP + " " + r.Dom).c_str()))
+                  !glob_m(flt, (r.Proc + " " + r.IP + " " + r.Dom).c_str()))
                 continue;
+              if (r.TUp == 0 && r.TDn == 0)
+                continue; // Hide inactive
               ImGui::TableNextRow();
               ImGui::TableSetColumnIndex(0);
               ImGui::Text("%u", r.Pid);
@@ -277,20 +281,19 @@ int main(int, char **) {
               ImGui::TableSetColumnIndex(5);
               ImGui::Text("%.1f", (float)r.SUp / div);
               ImGui::TableSetColumnIndex(6);
-              ImGui::Text("%.1f", (float)r.SDown / div);
+              ImGui::Text("%.1f", (float)r.SDn / div);
               ImGui::TableSetColumnIndex(7);
               ImGui::Text("%.1f", (float)r.MaxUp / div);
               ImGui::TableSetColumnIndex(8);
-              ImGui::Text("%.1f", (float)r.MaxDown / div);
+              ImGui::Text("%.1f", (float)r.MaxDn / div);
               ImGui::TableSetColumnIndex(9);
               ImGui::Text("%.1f", (float)r.TUp / div);
               ImGui::TableSetColumnIndex(10);
-              ImGui::Text("%.1f", (float)r.TDown / div);
-              r.SUp = r.SDown = 0;
+              ImGui::Text("%.1f", (float)r.TDn / div);
             }
             ImGui::EndTable();
           }
-          if (ImGui::Button("Reset View Stats"))
+          if (ImGui::Button("Reset View Data"))
             tableData.clear();
           ImGui::EndTabItem();
         }
@@ -314,19 +317,13 @@ int main(int, char **) {
             for (auto const &item : cachedUsage) {
               ImGui::TableNextRow();
               ImGui::TableSetColumnIndex(0);
-              ImGui::Text("%s", WToA_Final(item.AppName).c_str());
+              ImGui::Text("%s", WToA_F(item.AppName).c_str());
               ImGui::TableSetColumnIndex(1);
               ImGui::Text("%.1f", item.TotalBytesUp / 1048576.0f);
               ImGui::TableSetColumnIndex(2);
               ImGui::Text("%.1f", item.TotalBytesDown / 1048576.0f);
             }
             ImGui::EndTable();
-          }
-          static char csv[128] = "traffic_export.csv";
-          ImGui::InputText("CSV File", csv, 128);
-          ImGui::SameLine();
-          if (ImGui::Button("Export (1hr)")) {
-            database.ExportToCSV(csv, 3600);
           }
           ImGui::EndTabItem();
         }
@@ -335,25 +332,20 @@ int main(int, char **) {
           if (ImGui::Button("Run Analysis")) {
             analysisResults = correlator.Correlate(3600, 1024 * 1024);
           }
-          if (analysisResults.empty()) {
-            ImGui::Text("No significant peaks found.");
-          }
           for (auto const &res : analysisResults) {
-            std::string header = WToA_Final(res.AppName) + " | Peak: " +
+            std::string header = WToA_F(res.AppName) + " | Peak: " +
                                  std::to_string(res.Peak.TotalBytes / 1024) +
                                  " KB";
             if (ImGui::CollapsingHeader(header.c_str())) {
               ImGui::TextWrapped("Summary: %s",
-                                 WToA_Final(res.Conclusion.Summary).c_str());
+                                 WToA_F(res.Conclusion.Summary).c_str());
               ImGui::TextWrapped("Detail: %s",
-                                 WToA_Final(res.Conclusion.Detail).c_str());
+                                 WToA_F(res.Conclusion.Detail).c_str());
               ImGui::Separator();
-              ImGui::Text("Log Context:");
               for (auto const &evt : res.RelatedEvents) {
-                ImGui::TextDisabled("[%llu] %s (ID %u): %s", evt.Timestamp,
-                                    WToA_Final(evt.ProviderName).c_str(),
-                                    evt.EventId,
-                                    WToA_Final(evt.Message).c_str());
+                ImGui::TextDisabled("[%llu] %s: %s", evt.Timestamp,
+                                    WToA_F(evt.ProviderName).c_str(),
+                                    WToA_F(evt.Message).c_str());
               }
             }
           }
@@ -361,19 +353,11 @@ int main(int, char **) {
         }
 
         if (ImGui::BeginTabItem("Debug")) {
-          ImGui::Text("Events Captured: %llu",
-                      appMonitor.GetTotalEventsCount());
-          ImGui::Text("Valid Data Pkts: %llu",
-                      appMonitor.GetParsedEventsCount());
-          ImGui::Text("DNS Cache Size: %llu", appMonitor.GetDnsEventsCount());
-
-          std::wstring pErr = appMonitor.GetLastParsingError();
-          if (!pErr.empty())
-            ImGui::TextColored(ImVec4(1, 0, 0, 1), "Last System Error: %s",
-                               WToA_Final(pErr).c_str());
-
-          ImGui::Separator();
-          ImGui::Text("Event Freq (Crucial):");
+          ImGui::Text("Events: %llu | Data: %llu | DNS: %llu",
+                      appMonitor.GetTotalEventsCount(),
+                      appMonitor.GetParsedEventsCount(),
+                      appMonitor.GetDnsEventsCount());
+          ImGui::Text("Event Frequency:");
           if (ImGui::BeginTable("DebugF", 2,
                                 ImGuiTableFlags_Borders |
                                     ImGuiTableFlags_RowBg |
@@ -381,8 +365,7 @@ int main(int, char **) {
             ImGui::TableSetupColumn("Identifier", 0, 300.0f);
             ImGui::TableSetupColumn("Count", 0, 100.0f);
             ImGui::TableHeadersRow();
-            auto counts = appMonitor.GetEventCounts();
-            for (auto const &c : counts) {
+            for (auto const &c : appMonitor.GetEventCounts()) {
               ImGui::TableNextRow();
               ImGui::TableSetColumnIndex(0);
               ImGui::Text("%s", c.first.c_str());
@@ -398,9 +381,9 @@ int main(int, char **) {
       ImGui::End();
 
       ImGui::Render();
-      const float clear_color[4] = {0.1f, 0.1f, 0.1f, 1.0f};
+      const float clrArr[4] = {0.1f, 0.1f, 0.1f, 1.0f};
       g_pContext->OMSetRenderTargets(1, &g_pRtv, nullptr);
-      g_pContext->ClearRenderTargetView(g_pRtv, clear_color);
+      g_pContext->ClearRenderTargetView(g_pRtv, clrArr);
       ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
       g_pSwapChain->Present(1, 0);
     }
@@ -471,7 +454,6 @@ void CleanupRtv() {
     g_pRtv = nullptr;
   }
 }
-
 LRESULT WINAPI WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
   if (g_uReady && ImGui_ImplWin32_WndProcHandler(h, m, w, l))
     return true;

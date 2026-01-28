@@ -15,11 +15,9 @@
 
 namespace monitor {
 
-// Key for aggregating stats by process + remote IP
 struct StatsKey {
   uint32_t Pid;
   std::wstring RemoteIP;
-
   bool operator<(const StatsKey &other) const {
     if (Pid != other.Pid)
       return Pid < other.Pid;
@@ -43,30 +41,24 @@ public:
   uint64_t GetTotalEventsCount() const;
   uint64_t GetParsedEventsCount() const;
 
-  struct ETWStatus {
-    unsigned long StartTraceError;
-    unsigned long EnableError;
-    unsigned long OpenTraceError;
-    unsigned long ProcessTraceError;
-  };
-  ETWStatus GetETWStatus() const;
-
   struct AppStatsSnapshot {
     uint32_t Pid;
     std::wstring ProcessName;
     std::wstring RemoteIP;
-    std::wstring Domain;  // Resolved from DNS cache
-    std::wstring Country; // Resolved from GeoIP
-    uint64_t Up;
-    uint64_t Down;
+    std::wstring Domain;
+    std::wstring Country;
+    uint64_t TotalUp;   // Persistent total
+    uint64_t TotalDown; // Persistent total
 
     AppStatsSnapshot(uint32_t pid, std::wstring pname, std::wstring rip,
-                     std::wstring dom, std::wstring count, uint64_t u,
-                     uint64_t d)
+                     std::wstring dom, std::wstring count, uint64_t tu,
+                     uint64_t td)
         : Pid(pid), ProcessName(pname), RemoteIP(rip), Domain(dom),
-          Country(count), Up(u), Down(d) {}
+          Country(count), TotalUp(tu), TotalDown(td) {}
   };
-  std::vector<AppStatsSnapshot> GetRawBufferSnapshot();
+
+  // NEW: Returns cumulative statistics since start
+  std::vector<AppStatsSnapshot> GetCumulativeSnapshot();
 
   struct DebugEvent {
     uint16_t Id;
@@ -90,7 +82,9 @@ private:
 
   std::mutex m_statsMutex;
   std::map<StatsKey, AccumulatedStats> m_bufferedStats;
-  std::vector<DebugEvent> m_lastEvents; // Rotating buffer for debug
+  std::map<StatsKey, AccumulatedStats> m_cumulativeStats; // NEW: Never cleared
+
+  std::vector<DebugEvent> m_lastEvents;
   std::mutex m_debugMutex;
   std::wstring m_lastParsingError;
   std::map<std::string, uint64_t> m_eventCounts;

@@ -26,7 +26,6 @@ bool AppMonitor::Start() {
                               try {
                                 this->OnEvent(pEvent);
                               } catch (...) {
-                                // Silent block
                               }
                             });
 }
@@ -41,7 +40,6 @@ void AppMonitor::Stop() {
 void AppMonitor::OnEvent(PEVENT_RECORD pEvent) {
   m_totalEventsReceived++;
 
-  // Fast-path: Pre-cache names
   static const GUID TcpipGuid = {
       0x2f07e239,
       0x2db3,
@@ -72,7 +70,6 @@ void AppMonitor::OnEvent(PEVENT_RECORD pEvent) {
 
   {
     std::lock_guard<std::mutex> lock(m_debugMutex);
-
     if (!isWellKnown) {
       RPC_WSTR guidStr = nullptr;
       if (UuidToStringW(&pEvent->EventHeader.ProviderId, &guidStr) ==
@@ -87,28 +84,26 @@ void AppMonitor::OnEvent(PEVENT_RECORD pEvent) {
     m_lastEvents.push_back(
         {pEvent->EventHeader.EventDescriptor.Id, providerName});
 
-    // Minimal string work in high-speed loop
-    std::string keyA = "Unknown";
+    std::string kA = "Unknown";
     if (providerName == L"TCPIP")
-      keyA = "TCPIP";
+      kA = "TCPIP";
     else if (providerName == L"DNS")
-      keyA = "DNS";
+      kA = "DNS";
     else if (providerName == L"K-NET")
-      keyA = "K-NET";
+      kA = "K-NET";
     else {
-      // Only convert long GUID strings if necessary
       int sz = WideCharToMultiByte(CP_UTF8, 0, providerName.c_str(),
                                    (int)providerName.length(), nullptr, 0,
                                    nullptr, nullptr);
       if (sz > 0) {
-        keyA.resize(sz);
+        kA.resize(sz);
         WideCharToMultiByte(CP_UTF8, 0, providerName.c_str(),
-                            (int)providerName.length(), &keyA[0], sz, nullptr,
+                            (int)providerName.length(), &kA[0], sz, nullptr,
                             nullptr);
       }
     }
-    keyA += ":" + std::to_string(pEvent->EventHeader.EventDescriptor.Id);
-    m_eventCounts[keyA]++;
+    kA += ":" + std::to_string(pEvent->EventHeader.EventDescriptor.Id);
+    m_eventCounts[kA]++;
   }
 
   std::wstring parseError;
@@ -123,12 +118,14 @@ void AppMonitor::OnEvent(PEVENT_RECORD pEvent) {
   if (m_parser.Parse(pEvent, te, parseError)) {
     m_parsedEventsReceived++;
     std::lock_guard<std::mutex> lock(m_statsMutex);
-    StatsKey key{te.ProcessId, te.RemoteIP};
-    auto &stats = m_bufferedStats[key];
-    if (te.IsUpload)
-      stats.BytesUp += te.Bytes;
-    else
-      stats.BytesDown += te.Bytes;
+    StatsKey skey{te.ProcessId, te.RemoteIP};
+    if (te.IsUpload) {
+      m_bufferedStats[skey].BytesUp += te.Bytes;
+      m_cumulativeStats[skey].BytesUp += te.Bytes;
+    } else {
+      m_bufferedStats[skey].BytesDown += te.Bytes;
+      m_cumulativeStats[skey].BytesDown += te.Bytes;
+    }
   } else if (!parseError.empty()) {
     std::lock_guard<std::mutex> lock(m_debugMutex);
     m_lastParsingError = parseError;
@@ -141,12 +138,7 @@ uint64_t AppMonitor::GetTotalEventsCount() const {
 uint64_t AppMonitor::GetParsedEventsCount() const {
   return m_parsedEventsReceived;
 }
-AppMonitor::ETWStatus AppMonitor::GetETWStatus() const {
-  return {m_controller.GetLastStartTraceError(),
-          m_controller.GetLastEnableError(),
-          m_controller.GetLastOpenTraceError(),
-          m_controller.GetLastProcessTraceError()};
-}
+
 std::vector<AppMonitor::DebugEvent> AppMonitor::GetLastEvents() {
   std::lock_guard<std::mutex> lock(m_debugMutex);
   return m_lastEvents;
@@ -160,10 +152,10 @@ std::wstring AppMonitor::GetLastParsingError() const {
   return m_lastParsingError;
 }
 
-std::vector<AppMonitor::AppStatsSnapshot> AppMonitor::GetRawBufferSnapshot() {
+std::vector<AppMonitor::AppStatsSnapshot> AppMonitor::GetCumulativeSnapshot() {
   std::vector<AppStatsSnapshot> snapshot;
   std::lock_guard<std::mutex> lock(m_statsMutex);
-  for (auto const &[key, stats] : m_bufferedStats) {
+  for (auto const &[key, stats] : m_cumulativeStats) {
     std::wstring procName = m_tracker.GetProcessName(key.Pid);
     std::wstring domain = m_dnsResolver.GetDomain(key.RemoteIP);
     std::wstring country = m_geoIp.GetCountryCode(key.RemoteIP);
@@ -174,7 +166,6 @@ std::vector<AppMonitor::AppStatsSnapshot> AppMonitor::GetRawBufferSnapshot() {
 }
 
 void AppMonitor::FlushLoop() {
-  LOG("AppMonitor::FlushLoop started");
   while (!m_stopFlush) {
     std::this_thread::sleep_for(std::chrono::seconds(1));
     if (m_stopFlush)
@@ -205,13 +196,9 @@ void AppMonitor::FlushLoop() {
         if (appId != -1)
           m_db.LogTraffic(appId, stats.BytesUp, stats.BytesDown);
       }
-    } catch (const std::exception &e) {
-      LOG("Error in FlushLoop: " + std::string(e.what()));
     } catch (...) {
-      LOG("Error in FlushLoop: Unknown");
     }
   }
-  LOG("AppMonitor::FlushLoop exiting");
 }
 
 } // namespace monitor
